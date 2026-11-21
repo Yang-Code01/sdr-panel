@@ -204,11 +204,24 @@ function setHdr(d, want) {
   setTimeout(() => {
     refresh();
     const after = state.displays.find((x) => x.key === d.key);
-    if (want && after && !after.hdrEnabled) {
+    // 有些屏 EDID 声称支持 HDR，但开了之后链路仍是 8-bit：读回说「已开启」，画面其实没变。
+    // 两个信号任一命中就记进 hdrBroken，面板把开关禁掉（旁边留一个「重试」）。
+    const looksFake = after && after.hdrEnabled && (after.bitsPerColor ?? 8) <= 8;
+    if (want && after && (!after.hdrEnabled || looksFake)) {
       const cfg = store.load();
       store.save({ hdrBroken: { ...(cfg.hdrBroken || {}), [d.key]: true } });
       after.hdrBlocked = true;
-      showHud(`${d.name} · 未能切换到 HDR`);
+      // 假 HDR 不开着不关：直接撤销，让这块屏回到 DDC 硬件亮度那条路
+      if (looksFake) {
+        display.writeHdr(after.target, false);
+        showHud(`${d.name} · 没有真正切到 HDR，已回退`);
+        setTimeout(() => {
+          refresh();
+          broadcast();
+        }, 1800);
+      } else {
+        showHud(`${d.name} · 未能切换到 HDR`);
+      }
     }
     broadcast();
   }, 1600);
@@ -449,6 +462,19 @@ function registerIpc() {
     toggleHdr(key);
     return true;
   });
+  ipcMain.handle('hdr:retry', (_e, key) => {
+    const cfg = store.load();
+    if (cfg.hdrBroken?.[key]) {
+      const next = { ...cfg.hdrBroken };
+      delete next[key];
+      store.save({ hdrBroken: next });
+    }
+    refresh();
+    const d = state.displays.find((x) => x.key === key);
+    if (d) setHdr(d, !d.hdrEnabled);
+    broadcast();
+    return true;
+  });
   ipcMain.handle('scene:apply', (_e, id) => {
     applyScene(id);
     return true;
@@ -524,6 +550,11 @@ function devHarness() {
     }
     showHud();
     setTimeout(() => shot(hudWin, 'hud-self.png'), 350);
+    if (process.env.SDR_DEV_CLICK) {
+      await panelWin.webContents.executeJavaScript(`document.getElementById('${process.env.SDR_DEV_CLICK}').click()`);
+      await new Promise((r) => setTimeout(r, 3000));
+      await shot(panelWin, `panel-after-${process.env.SDR_DEV_CLICK}.png`);
+    }
   }, 2200);
 }
 

@@ -42,7 +42,7 @@ function renderSegs() {
     el.classList.toggle('on', d.key === state.selectedKey);
     el.setAttribute('aria-selected', String(d.key === state.selectedKey));
     el.querySelector('i').classList.toggle('off', !d.hdrEnabled);
-    el.querySelector('span').textContent = `${d.step}% · HDR ${d.hdrEnabled ? '开' : '关'}${d.selected ? '' : ''}`;
+    el.querySelector('span').textContent = `${d.step}% · ${d.control === 'ddc' ? '硬件亮度' : 'HDR ' + (d.hdrEnabled ? '开' : '关')}`;
   });
 }
 
@@ -74,7 +74,10 @@ function renderScenes() {
     const d = current();
     const own = d && s.per && s.per[d.key];
     const step = own ? own.step : s.step;
-    v.textContent = `${step}%${typeof (own ? own.hdr : s.hdr) === 'boolean' ? ' · HDR ' + ((own ? own.hdr : s.hdr) ? '开' : '关') : ''}`;
+    // 当前这块屏根本用不了 HDR 时，别再拿「HDR 开」误导人
+    const showHdr = !d || (d.hdrSupported && !d.hdrBlocked);
+    const hdrVal = own ? own.hdr : s.hdr;
+    v.textContent = `${step}%${showHdr && typeof hdrVal === 'boolean' ? ' · HDR ' + (hdrVal ? '开' : '关') : ''}`;
     row.append(key, nm, v);
     row.addEventListener('click', () => window.api.applyScene(s.id));
     box.append(row);
@@ -112,10 +115,11 @@ function render() {
   sw.setAttribute('aria-checked', String(d.hdrEnabled));
   sw.disabled = !d.hdrSupported || d.hdrBlocked || !!hdrTimer;
   sw.classList.toggle('busy', !!hdrTimer);
+  $('hdrRetry').hidden = !d.hdrBlocked;
   $('hdrSub').textContent = !d.hdrSupported
     ? '此显示器未报告 HDR 能力'
     : d.hdrBlocked
-      ? '此显示器切换到 HDR 无效，已禁用开关'
+      ? '这块屏开启后仍为 8-bit，画面不会真的是 HDR'
       : d.hdrEnabled
         ? '正在输出 HDR，内容亮度对 SDR 画面生效'
         : d.control === 'ddc'
@@ -163,6 +167,17 @@ $('hdr').addEventListener('click', () => {
     render();
   }, 2200);
   window.api.toggleHdr(d.key);
+  render();
+});
+
+$('hdrRetry').addEventListener('click', () => {
+  const d = current();
+  if (!d) return;
+  hdrTimer = setTimeout(() => {
+    hdrTimer = null;
+    render();
+  }, 2400);
+  window.api.retryHdr(d.key);
   render();
 });
 

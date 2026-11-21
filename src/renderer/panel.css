@@ -162,6 +162,11 @@ input[type="range"]:focus-visible::-webkit-slider-thumb {
 .switch.on::after { transform: translateX(15px); }
 .switch:disabled { opacity: 0.4; cursor: default; }
 .switch.busy { opacity: 0.6; }
+.retry {
+  flex: none; border: 0; padding: 0 2px; background: transparent;
+  color: var(--accent); font: 11px var(--sans); cursor: pointer;
+}
+.retry[hidden] { display: none; }
 
 /* ------------------------------------------------------------ scenes */
 .sec { display: flex; align-items: center; justify-content: space-between; margin: 14px 4px 6px; }

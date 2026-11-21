@@ -6,6 +6,7 @@ contextBridge.exposeInMainWorld('api', {
   setStep: (step, final) => ipcRenderer.invoke('sdr:set', step, final),
   selectDisplay: (key) => ipcRenderer.invoke('display:select', key),
   toggleHdr: (key) => ipcRenderer.invoke('hdr:toggle', key),
+  retryHdr: (key) => ipcRenderer.invoke('hdr:retry', key),
   applyScene: (id) => ipcRenderer.invoke('scene:apply', id),
   saveScene: (name) => ipcRenderer.invoke('scene:save', name),
   deleteScene: (id) => ipcRenderer.invoke('scene:delete', id),
