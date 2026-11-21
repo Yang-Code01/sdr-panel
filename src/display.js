@@ -148,6 +148,96 @@ function writeHdr(target, on) {
   return rc;
 }
 
+// ---------------------------------------------------------------- DDC/CI
+// HDR 没开（或显示器根本不支持 HDR）时，「SDR 内容亮度」不会影响画面；
+// 这时改用 DDC/CI 的硬件亮度（VCP 0x10），也就是显示器自己的背光亮度。
+const dxva2 = koffi.load('dxva2.dll');
+const EnumDisplayMonitors = user32.func('bool __stdcall EnumDisplayMonitors(void *hdc, void *clip, void *cb, intptr data)');
+const GetMonitorInfo = user32.func('bool __stdcall GetMonitorInfoW(void *hMonitor, _Inout_ uint8_t *info)');
+const GetNumberOfPhysicalMonitors = dxva2.func('bool __stdcall GetNumberOfPhysicalMonitorsFromHMONITOR(void *h, _Out_ uint32 *n)');
+const GetPhysicalMonitors = dxva2.func('bool __stdcall GetPhysicalMonitorsFromHMONITOR(void *h, uint32 count, _Out_ uint8_t *arr)');
+const GetMonitorBrightness = dxva2.func('bool __stdcall GetMonitorBrightness(void *h, _Out_ uint32 *mn, _Out_ uint32 *cur, _Out_ uint32 *mx)');
+const SetMonitorBrightness = dxva2.func('bool __stdcall SetMonitorBrightness(void *h, uint32 value)');
+const DestroyPhysicalMonitors = dxva2.func('bool __stdcall DestroyPhysicalMonitors(uint32 count, _Inout_ uint8_t *arr)');
+const MonitorEnumProc = koffi.proto('bool __stdcall MonitorEnumProc(void *hMonitor, void *hdc, void *rc, intptr data)');
+
+const PHYSICAL_MONITOR_SIZE = 264; // HANDLE(8) + WCHAR[128]
+let ddc = null;
+
+function enumerateDdc() {
+  const handles = [];
+  const cb = koffi.register((hMonitor) => {
+    handles.push(hMonitor);
+    return true;
+  }, koffi.pointer(MonitorEnumProc));
+  try {
+    EnumDisplayMonitors(null, null, cb, 0);
+  } finally {
+    koffi.unregister(cb);
+  }
+
+  const map = {};
+  for (const hMonitor of handles) {
+    const info = Buffer.alloc(128);
+    info.writeUInt32LE(104, 0);
+    if (!GetMonitorInfo(hMonitor, info)) continue;
+    const gdi = info.toString('utf16le', 40, 72).split(String.fromCharCode(0))[0];
+    const n = [0];
+    if (!GetNumberOfPhysicalMonitors(hMonitor, n) || !n[0]) continue;
+    const arr = Buffer.alloc(PHYSICAL_MONITOR_SIZE * n[0]);
+    if (!GetPhysicalMonitors(hMonitor, n[0], arr)) continue;
+    const handle = arr.readBigUInt64LE(0);
+    const mn = [0];
+    const cur = [0];
+    const mx = [0];
+    if (!GetMonitorBrightness(handle, mn, cur, mx)) continue;
+    map[gdi] = { gdi, handle, min: mn[0], max: mx[0], count: n[0], array: arr };
+  }
+  ddc = map;
+  return map;
+}
+
+function ddcFor(gdiName) {
+  if (!gdiName) return null;
+  const map = ddc || enumerateDdc();
+  return map[gdiName] || null;
+}
+
+function readDdc(gdiName) {
+  const h = ddcFor(gdiName);
+  if (!h) return null;
+  const mn = [0];
+  const cur = [0];
+  const mx = [0];
+  if (!GetMonitorBrightness(h.handle, mn, cur, mx)) return null;
+  const span = mx[0] - mn[0];
+  return {
+    min: mn[0],
+    max: mx[0],
+    raw: cur[0],
+    percent: span > 0 ? Math.round(((cur[0] - mn[0]) * 100) / span) : null,
+  };
+}
+
+function writeDdc(gdiName, percent) {
+  const h = ddcFor(gdiName);
+  if (!h) return false;
+  const p = Math.max(0, Math.min(100, Math.round(percent)));
+  return SetMonitorBrightness(h.handle, Math.round(h.min + ((h.max - h.min) * p) / 100));
+}
+
+function releaseDdc() {
+  if (!ddc) return;
+  for (const h of Object.values(ddc)) {
+    try {
+      DestroyPhysicalMonitors(h.count, h.array);
+    } catch {
+      /* 显示器已经拔掉时销毁会失败，忽略 */
+    }
+  }
+  ddc = null;
+}
+
 function listDisplays() {
   const paths = queryActivePaths();
   const seen = new Set();
@@ -158,6 +248,10 @@ function listDisplays() {
     if (seen.has(key)) return;
     seen.add(key);
     const color = readAdvancedColor(p.target);
+    // HDR 开着时 SDR 白点才是真正起作用的那条路；否则退回 DDC 硬件亮度
+    const sdrLevel = readSdr(p.target);
+    const hdrEnabled = !!(color && color.enabled);
+    const ddcInfo = hdrEnabled ? null : readDdc(getSourceName(p.source));
     out.push({
       key,
       index: out.length,
@@ -165,11 +259,13 @@ function listDisplays() {
       gdiName: getSourceName(p.source),
       target: p.target,
       targetId: p.target.id,
-      sdrLevel: readSdr(p.target),
+      sdrLevel,
       hdrSupported: !!(color && color.supported),
-      hdrEnabled: !!(color && color.enabled),
+      hdrEnabled,
       hdrForcedOff: !!(color && color.forcedOff),
       bitsPerColor: color ? color.bitsPerColor : null,
+      ddc: ddcInfo,
+      control: hdrEnabled ? 'sdr' : ddcInfo ? 'ddc' : 'none',
     });
   });
   return out;
@@ -189,6 +285,9 @@ module.exports = {
   readAdvancedColor,
   writeHdr,
   nits,
+  readDdc,
+  writeDdc,
+  releaseDdc,
   stepFromLevel: (level) => Math.round((level - LEVEL_MIN) / LEVEL_STEP),
   levelFromStep: (step) => LEVEL_MIN + Math.max(0, Math.min(100, step)) * LEVEL_STEP,
 };

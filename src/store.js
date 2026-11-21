@@ -13,6 +13,8 @@ const DEFAULTS = {
     { id: 'night', name: '夜间', step: 20, hdr: false, per: {} },
   ],
   autoLaunch: false,
+  // 被验证过「切到 HDR 也无效」的显示器（devicePath → true），用来禁用开关
+  hdrBroken: {},
 };
 
 let cache = null;
@@ -23,6 +25,7 @@ function load() {
     const raw = JSON.parse(fs.readFileSync(FILE(), 'utf8'));
     cache = { ...structuredClone(DEFAULTS), ...raw };
     if (!Array.isArray(cache.scenes) || !cache.scenes.length) cache.scenes = structuredClone(DEFAULTS.scenes);
+    if (!cache.hdrBroken || typeof cache.hdrBroken !== 'object') cache.hdrBroken = {};
   } catch {
     cache = structuredClone(DEFAULTS);
   }

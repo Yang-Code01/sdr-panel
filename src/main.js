@@ -45,6 +45,13 @@ function refresh() {
   }
   const cfg = store.load();
   state.scenes = cfg.scenes || [];
+  // 已经真的在输出 HDR 的屏，之前记下的「切不过去」记录就过期了
+  const broken = cfg.hdrBroken || {};
+  const stale = Object.keys(broken).filter((k) => state.displays.some((d) => d.key === k && d.hdrEnabled));
+  if (stale.length) {
+    for (const k of stale) delete broken[k];
+    store.save({ hdrBroken: broken });
+  }
   const exists = state.displays.some((d) => d.key === state.selectedKey);
   if (!exists) {
     state.selectedKey =
@@ -55,16 +62,59 @@ function refresh() {
   }
 }
 
+// 一块屏的「亮度」有两种来源：HDR 开着时是 SDR 白点（影响 HDR 信号里的 SDR 内容），
+// 没开 HDR（或根本是 SDR 屏）时是 DDC/CI 的硬件亮度。滑块统一用 0–100 表示。
+function stepOf(d) {
+  if (!d) return 0;
+  if (d.control === 'ddc') return d.ddc?.percent ?? 100;
+  return display.stepFromLevel(d.sdrLevel ?? display.LEVEL_MIN);
+}
+
+function applyStep(d, step, final = true) {
+  if (!d) return null;
+  if (d.control === 'ddc') {
+    const pct = Math.max(0, Math.min(100, Math.round(step)));
+    if (!display.writeDdc(d.gdiName, pct)) {
+      console.error('DDC 亮度写入失败: ' + d.name);
+      return null;
+    }
+    // 拖拽的中间帧不回读（DDC 一次回读又要 ~130ms），先按写入值显示
+    if (!final) {
+      d.ddc = { ...(d.ddc || { min: 0, max: 100 }), raw: pct, percent: pct };
+      return pct;
+    }
+    const ddc = display.readDdc(d.gdiName);
+    if (ddc) d.ddc = ddc;
+    return ddc?.percent ?? pct;
+  }
+  if (d.control === 'none') return null;
+  const { rc, level } = display.writeSdr(d.target, display.levelFromStep(step), final);
+  if (rc !== 0) {
+    console.error('写入 SDR 白点失败 rc=' + rc + '，目标 ' + d.name);
+    return null;
+  }
+  d.sdrLevel = display.readSdr(d.target) ?? level;
+  return display.stepFromLevel(d.sdrLevel);
+}
+
+function hudLine(d) {
+  if (!d) return '';
+  if (d.control === 'ddc') return `${d.name} · 硬件亮度`;
+  return `${d.name} · ${display.nits(d.sdrLevel ?? display.LEVEL_MIN)} nits`;
+}
+
 function viewState() {
   return {
     displays: state.displays.map((d) => ({
       key: d.key,
       name: d.name,
       gdiName: d.gdiName,
-      step: display.stepFromLevel(d.sdrLevel ?? display.LEVEL_MIN),
+      step: stepOf(d),
       nits: display.nits(d.sdrLevel ?? display.LEVEL_MIN),
+      control: d.control,
       hdrEnabled: d.hdrEnabled,
       hdrSupported: d.hdrSupported,
+      hdrBlocked: !!store.load().hdrBroken?.[d.key],
       hdrForcedOff: d.hdrForcedOff,
       bitsPerColor: d.bitsPerColor,
       selected: d.key === state.selectedKey,
@@ -115,23 +165,17 @@ function showHud(text) {
 function setStep(step, final = true) {
   const d = current();
   if (!d) return;
-  const { rc, level } = display.writeSdr(d.target, display.levelFromStep(step), final);
-  if (rc !== 0) {
-    console.error('写入 SDR 白点失败 rc=' + rc + '，目标 ' + d.name);
-    return;
-  }
-  d.sdrLevel = display.readSdr(d.target) ?? level;
-  const shown = display.stepFromLevel(d.sdrLevel);
+  const shown = applyStep(d, step, final);
+  if (shown === null) return;
   broadcast();
-  showHud(`${d.name} · ${display.nits(d.sdrLevel)} nits`);
+  showHud(hudLine(d));
   return shown;
 }
 
 function nudge(delta) {
   const d = current();
   if (!d) return;
-  const step = display.stepFromLevel(d.sdrLevel ?? display.LEVEL_MIN);
-  setStep(step + delta, true);
+  setStep(stepOf(d) + delta, true);
 }
 
 function applyScene(id) {
@@ -140,8 +184,8 @@ function applyScene(id) {
   if (!state.displays.length) refresh();
   for (const d of state.displays) {
     const v = scene.per?.[d.key] || scene;
-    if (typeof v.step === 'number') display.writeSdr(d.target, display.levelFromStep(v.step), true);
-    if (typeof v.hdr === 'boolean' && d.hdrSupported && d.hdrEnabled !== v.hdr) display.writeHdr(d.target, v.hdr);
+    if (typeof v.step === 'number') applyStep(d, v.step, true);
+    if (typeof v.hdr === 'boolean' && d.hdrSupported && !d.hdrBlocked && d.hdrEnabled !== v.hdr) setHdr(d, v.hdr);
   }
   setTimeout(() => {
     refresh();
@@ -150,16 +194,30 @@ function applyScene(id) {
   }, 1400);
 }
 
-function toggleHdr(key = state.selectedKey) {
-  const d = state.displays.find((x) => x.key === key);
+// 写 HDR 之后回头验一次：有些显示器 EDID 声称支持 HDR，实际切不过去。
+// 验出来的屏记进 settings.hdrBroken，面板就把开关禁掉，不再假报。
+function setHdr(d, want) {
   if (!d || !d.hdrSupported) return;
-  const rc = display.writeHdr(d.target, !d.hdrEnabled);
+  const rc = display.writeHdr(d.target, want);
   if (rc !== 0) console.error('切换 HDR 失败 rc=' + rc);
-  showHud(`${d.name} · HDR ${d.hdrEnabled ? '关' : '开'}`);
+  showHud(`${d.name} · HDR ${want ? '开' : '关'}`);
   setTimeout(() => {
     refresh();
+    const after = state.displays.find((x) => x.key === d.key);
+    if (want && after && !after.hdrEnabled) {
+      const cfg = store.load();
+      store.save({ hdrBroken: { ...(cfg.hdrBroken || {}), [d.key]: true } });
+      after.hdrBlocked = true;
+      showHud(`${d.name} · 未能切换到 HDR`);
+    }
     broadcast();
   }, 1600);
+}
+
+function toggleHdr(key = state.selectedKey) {
+  const d = state.displays.find((x) => x.key === key);
+  if (!d || !d.hdrSupported || d.hdrBlocked) return;
+  setHdr(d, !d.hdrEnabled);
 }
 
 // ---------------------------------------------------------------- windows
@@ -264,10 +322,10 @@ function refreshTrayMenu() {
   ];
   for (const d of state.displays) {
     template.push({
-      label: `${d.name} · HDR ${d.hdrEnabled ? '开' : '关'}`,
+      label: `${d.name} · HDR ${d.hdrEnabled ? '开' : '关'}${d.hdrBlocked ? '（切换无效）' : ''}`,
       type: 'checkbox',
       checked: d.hdrEnabled,
-      enabled: d.hdrSupported,
+      enabled: d.hdrSupported && !d.hdrBlocked,
       click: () => toggleHdr(d.key),
     });
   }
@@ -400,7 +458,7 @@ function registerIpc() {
     const per = {};
     for (const d of state.displays) {
       per[d.key] = {
-        step: display.stepFromLevel(d.sdrLevel ?? display.LEVEL_MIN),
+        step: stepOf(d),
         hdr: d.hdrEnabled,
       };
     }
@@ -410,7 +468,7 @@ function registerIpc() {
       {
         id: 'scene-' + Date.now(),
         name: name || '场景 ' + (cfg.scenes.length + 1),
-        step: display.stepFromLevel(first?.sdrLevel ?? display.LEVEL_MIN),
+        step: stepOf(first),
         hdr: !!first?.hdrEnabled,
         per,
       },
@@ -492,5 +550,8 @@ if (!app.requestSingleInstanceLock()) {
     e.preventDefault?.();
   });
 
-  app.on('will-quit', () => globalShortcut.unregisterAll());
+  app.on('will-quit', () => {
+    globalShortcut.unregisterAll();
+    if (display.releaseDdc) display.releaseDdc();
+  });
 }

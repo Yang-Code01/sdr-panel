@@ -96,8 +96,10 @@ function render() {
   }
 
   $('slider').disabled = false;
-  $('subtitle').textContent = `${d.name} · ${d.hdrEnabled ? 'HDR 已开启' : 'HDR 关闭'} · ${d.gdiName || ''}`.trim();
-  $('capSub').textContent = `${d.nits} nits`;
+  const mode = d.control === 'ddc' ? '硬件亮度' : d.hdrEnabled ? 'HDR 已开启' : 'HDR 关闭';
+  $('subtitle').textContent = `${d.name} · ${mode} · ${d.gdiName || ''}`.trim();
+  $('capLabel').textContent = d.control === 'ddc' ? '亮度' : 'SDR 内容亮度';
+  $('capSub').textContent = d.control === 'ddc' ? '显示器硬件亮度（DDC/CI）' : `${d.nits} nits`;
 
   if (!dragging) {
     $('value').textContent = d.step;
@@ -108,20 +110,26 @@ function render() {
   const sw = $('hdr');
   sw.classList.toggle('on', d.hdrEnabled);
   sw.setAttribute('aria-checked', String(d.hdrEnabled));
-  sw.disabled = !d.hdrSupported || !!hdrTimer;
+  sw.disabled = !d.hdrSupported || d.hdrBlocked || !!hdrTimer;
   sw.classList.toggle('busy', !!hdrTimer);
   $('hdrSub').textContent = !d.hdrSupported
-    ? '此显示器不支持 HDR'
-    : d.hdrEnabled
-      ? '正在输出 HDR，内容亮度对 SDR 画面生效'
-      : '当前是 SDR 输出，内容亮度暂不起作用';
+    ? '此显示器未报告 HDR 能力'
+    : d.hdrBlocked
+      ? '此显示器切换到 HDR 无效，已禁用开关'
+      : d.hdrEnabled
+        ? '正在输出 HDR，内容亮度对 SDR 画面生效'
+        : d.control === 'ddc'
+          ? '当前 SDR 输出，滑块调节的是硬件亮度'
+          : '当前 SDR 输出，这个值不会改变画面';
   $('bits').textContent = d.bitsPerColor ? `${d.bitsPerColor}-bit` : '—';
 }
 
 function sendStep(step, final) {
   pendingStep = step;
   const now = Date.now();
-  if (!final && now - lastSent < 60) return;
+  // DDC/CI 一次写入要 ~130ms，拖拽时放慢到 200ms，免得请求堆积
+  const gap = current()?.control === 'ddc' ? 200 : 60;
+  if (!final && now - lastSent < gap) return;
   lastSent = now;
   pendingStep = null;
   window.api.setStep(step, final);
