@@ -327,6 +327,21 @@ function togglePanel() {
   panelWin.webContents.send('state:changed', viewState());
 }
 
+function setAutoLaunch(on, { silent = false } = {}) {
+  store.save({ autoLaunch: !!on });
+  try {
+    app.setLoginItemSettings({
+      openAtLogin: !!on,
+      args: ['--hidden'],
+      path: process.execPath,
+    });
+  } catch (err) {
+    console.error('设置开机自启失败', err);
+  }
+  if (!silent) showHud(on ? '已开启开机自启' : '已关闭开机自启');
+  refreshTrayMenu();
+}
+
 function refreshTrayMenu() {
   if (!tray) return;
   const template = [
@@ -348,6 +363,12 @@ function refreshTrayMenu() {
   }
   template.push(
     { type: 'separator' },
+    {
+      label: '开机自启',
+      type: 'checkbox',
+      checked: !!store.load().autoLaunch,
+      click: (item) => setAutoLaunch(item.checked),
+    },
     { label: 'Windows HDR 设置', click: () => shell.openExternal('ms-settings:display-advanced') },
     { label: '退出', click: () => app.quit() }
   );
@@ -573,6 +594,8 @@ if (!app.requestSingleInstanceLock()) {
     createHud();
     registerHotkeys();
     nativeTheme.on('updated', broadcast);
+    // 开机自启：Electron 写的是 HKCU\Software\Microsoft\Windows\CurrentVersion\Run
+    setAutoLaunch(!!store.load().autoLaunch, { silent: true });
     if (process.env.SDR_SHOW_PANEL === '1') setTimeout(() => togglePanel(), 900);
     if (process.env.SDR_DEV === '1') devHarness();
   });

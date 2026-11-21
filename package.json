@@ -5,21 +5,53 @@
   "main": "src/main.js",
   "scripts": {
     "start": "electron .",
-    "icon": "node tools/make-icon.js"
+    "icon": "node tools/make-icon.js",
+    "dist": "electron-builder --win --x64"
   },
   "keywords": [],
-  "author": "",
+  "author": "yqm",
   "license": "ISC",
   "type": "commonjs",
   "dependencies": {
     "koffi": "^3.3.8"
   },
   "devDependencies": {
-    "electron": "^45.4.1"
+    "electron": "^45.4.1",
+    "electron-builder": "^26.18.0"
   },
   "allowScripts": {
     "koffi@3.3.8": true,
     "electron@45.4.1": true
   },
-  "productName": "SDR 亮度"
+  "productName": "SDR 亮度",
+  "build": {
+    "appId": "com.yqm.sdrpanel",
+    "productName": "SDR 亮度",
+    "directories": {
+      "output": "dist",
+      "buildResources": "build"
+    },
+    "files": [
+      "src/**/*",
+      "build/*.png",
+      "package.json"
+    ],
+    "asar": true,
+    "win": {
+      "icon": "build/icon-256.png",
+      "target": [
+        { "target": "nsis", "arch": ["x64"] },
+        { "target": "portable", "arch": ["x64"] }
+      ]
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "SDR 亮度",
+      "deleteAppDataOnUninstall": false
+    }
+  }
 }
