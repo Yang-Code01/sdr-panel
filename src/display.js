@@ -253,7 +253,9 @@ function listDisplays(hdrHints = {}) {
     const sdrLevel = readSdr(p.target);
     const hdrApi = !!(color && color.enabled);
     // GET_ADVANCED_COLOR_INFO 写完不刷新，所以以上次写入的记录为准（见 hdrstate.js）
-    const { enabled: hdrEnabled } = hdrstate.resolve(hdrApi, hdrHints[key]);
+    const { enabled: hdrEnabled, clearHint } = hdrstate.resolve(hdrApi, hdrHints[key]);
+    // 记录与系统读数不一致时，GET 报的位深也是旧值（HDR 关着却报 10-bit），界面按「未知」处理
+    const bitsStale = !clearHint && typeof hdrHints[key] === 'boolean';
     const ddcInfo = hdrEnabled ? null : readDdc(getSourceName(p.source));
     out.push({
       key,
@@ -268,6 +270,7 @@ function listDisplays(hdrHints = {}) {
       hdrApi,
       hdrForcedOff: !!(color && color.forcedOff),
       bitsPerColor: color ? color.bitsPerColor : null,
+      bitsStale,
       ddc: ddcInfo,
       control: hdrEnabled ? 'sdr' : ddcInfo ? 'ddc' : 'none',
     });

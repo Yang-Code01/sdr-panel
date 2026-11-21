@@ -125,7 +125,7 @@ function render() {
         : d.control === 'ddc'
           ? '当前 SDR 输出，滑块调节的是硬件亮度'
           : '当前 SDR 输出，这个值不会改变画面';
-  $('bits').textContent = d.bitsPerColor ? `${d.bitsPerColor}-bit` : '—';
+  $('bits').textContent = d.bitsStale || !d.bitsPerColor ? '—' : `${d.bitsPerColor}-bit`;
 }
 
 function sendStep(step, final) {

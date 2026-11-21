@@ -128,6 +128,7 @@ function viewState() {
       hdrBlocked: !!store.load().hdrBroken?.[d.key],
       hdrForcedOff: d.hdrForcedOff,
       bitsPerColor: d.bitsPerColor,
+      bitsStale: !!d.bitsStale,
       selected: d.key === state.selectedKey,
     })),
     selectedKey: state.selectedKey,
@@ -222,7 +223,8 @@ function setHdr(d, want) {
     const after = state.displays.find((x) => x.key === d.key);
     // 有些屏 EDID 声称支持 HDR，但开了之后链路仍是 8-bit：读回说「已开启」，画面其实没变。
     // 两个信号任一命中就记进 hdrBroken，面板把开关禁掉（旁边留一个「重试」）。
-    const looksFake = after && after.hdrEnabled && (after.bitsPerColor ?? 8) <= 8;
+    // 8-bit 链路 = 没真的变 HDR；位深若本身是旧值（bitsStale）就不做依据
+    const looksFake = after && after.hdrEnabled && !after.bitsStale && (after.bitsPerColor ?? 8) <= 8;
     if (want && after && (!after.hdrEnabled || looksFake)) {
       const cfg = store.load();
       store.save({ hdrBroken: { ...(cfg.hdrBroken || {}), [d.key]: true } });
