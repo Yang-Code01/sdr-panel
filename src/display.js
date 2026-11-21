@@ -2,6 +2,7 @@
 // 与 Windows 显示栈直连的薄封装：全部基于 user32!QueryDisplayConfig + DisplayConfig*DeviceInfo。
 // 读 SDR 白点用公开枚举 11；写用未公开的私有枚举 0xFFFFFFEE（Twinkle Tray / HDRTray 同款做法）。
 const koffi = require('koffi');
+const hdrstate = require('./hdrstate');
 
 const user32 = koffi.load('user32.dll');
 
@@ -238,7 +239,7 @@ function releaseDdc() {
   ddc = null;
 }
 
-function listDisplays() {
+function listDisplays(hdrHints = {}) {
   const paths = queryActivePaths();
   const seen = new Set();
   const out = [];
@@ -250,7 +251,9 @@ function listDisplays() {
     const color = readAdvancedColor(p.target);
     // HDR 开着时 SDR 白点才是真正起作用的那条路；否则退回 DDC 硬件亮度
     const sdrLevel = readSdr(p.target);
-    const hdrEnabled = !!(color && color.enabled);
+    const hdrApi = !!(color && color.enabled);
+    // GET_ADVANCED_COLOR_INFO 写完不刷新，所以以上次写入的记录为准（见 hdrstate.js）
+    const { enabled: hdrEnabled } = hdrstate.resolve(hdrApi, hdrHints[key]);
     const ddcInfo = hdrEnabled ? null : readDdc(getSourceName(p.source));
     out.push({
       key,
@@ -262,6 +265,7 @@ function listDisplays() {
       sdrLevel,
       hdrSupported: !!(color && color.supported),
       hdrEnabled,
+      hdrApi,
       hdrForcedOff: !!(color && color.forcedOff),
       bitsPerColor: color ? color.bitsPerColor : null,
       ddc: ddcInfo,

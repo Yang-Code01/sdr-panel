@@ -37,13 +37,24 @@ let panelFocused = false;
 const current = () => state.displays.find((d) => d.key === state.selectedKey) || state.displays[0] || null;
 
 function refresh() {
+  const cfg = store.load();
   try {
-    state.displays = display.listDisplays();
+    // 带上「上次写入的 HDR 值」：GET_ADVANCED_COLOR_INFO 写完不刷新（hdrstate.js）
+    state.displays = display.listDisplays(cfg.hdrState || {});
   } catch (err) {
     console.error('枚举显示器失败', err);
     state.displays = [];
   }
-  const cfg = store.load();
+  // 系统读数追上记录时，记录就没用了（重启后重新枚举就是这种情况）
+  const hdrState = { ...(cfg.hdrState || {}) };
+  let hintsDirty = false;
+  for (const d of state.displays) {
+    if (typeof hdrState[d.key] === 'boolean' && hdrState[d.key] === d.hdrApi) {
+      delete hdrState[d.key];
+      hintsDirty = true;
+    }
+  }
+  if (hintsDirty) store.save({ hdrState });
   state.scenes = cfg.scenes || [];
   // 已经真的在输出 HDR 的屏，之前记下的「切不过去」记录就过期了
   const broken = cfg.hdrBroken || {};
@@ -200,6 +211,11 @@ function setHdr(d, want) {
   if (!d || !d.hdrSupported) return;
   const rc = display.writeHdr(d.target, want);
   if (rc !== 0) console.error('切换 HDR 失败 rc=' + rc);
+  // 立即记下本次写入值并刷新：系统读数会停在旧值，不能再拿它当真相
+  const cfg = store.load();
+  store.save({ hdrState: { ...(cfg.hdrState || {}), [d.key]: want } });
+  refresh();
+  broadcast();
   showHud(`${d.name} · HDR ${want ? '开' : '关'}`);
   setTimeout(() => {
     refresh();
@@ -214,6 +230,8 @@ function setHdr(d, want) {
       // 假 HDR 不开着不关：直接撤销，让这块屏回到 DDC 硬件亮度那条路
       if (looksFake) {
         display.writeHdr(after.target, false);
+        const c2 = store.load();
+        store.save({ hdrState: { ...(c2.hdrState || {}), [d.key]: false } });
         showHud(`${d.name} · 没有真正切到 HDR，已回退`);
         setTimeout(() => {
           refresh();
@@ -572,9 +590,12 @@ function devHarness() {
     showHud();
     setTimeout(() => shot(hudWin, 'hud-self.png'), 350);
     if (process.env.SDR_DEV_CLICK) {
-      await panelWin.webContents.executeJavaScript(`document.getElementById('${process.env.SDR_DEV_CLICK}').click()`);
-      await new Promise((r) => setTimeout(r, 3000));
-      await shot(panelWin, `panel-after-${process.env.SDR_DEV_CLICK}.png`);
+      const times = Number(process.env.SDR_DEV_CLICKS || 1);
+      for (let i = 1; i <= times; i++) {
+        await panelWin.webContents.executeJavaScript(`document.getElementById('${process.env.SDR_DEV_CLICK}').click()`);
+        await new Promise((r) => setTimeout(r, 4500));
+        await shot(panelWin, `panel-after-${process.env.SDR_DEV_CLICK}-${i}.png`);
+      }
     }
   }, 2200);
 }
