@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'self'; script-src 'self'; img-src 'self' data:">
+<title>SDR 亮度</title>
+<link rel="stylesheet" href="panel.css">
+</head>
+<body>
+  <header class="head">
+    <div class="glyph" aria-hidden="true">
+      <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="#fff" stroke-width="1.4" stroke-linecap="round">
+        <circle cx="8" cy="8" r="3.1"/>
+        <path d="M8 1.3v1.6M8 13.1v1.6M1.3 8h1.6M13.1 8h1.6M3.3 3.3l1.1 1.1M11.6 11.6l1.1 1.1M12.7 3.3l-1.1 1.1M4.4 11.6l-1.1 1.1"/>
+      </svg>
+    </div>
+    <div class="titles">
+      <h1>SDR 亮度</h1>
+      <p id="subtitle">正在读取显示器…</p>
+    </div>
+    <button class="btn-ico" id="close" title="收起 (Esc)">
+      <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round">
+        <path d="M4 4l8 8M12 4l-8 8"/>
+      </svg>
+    </button>
+  </header>
+
+  <div class="seg-wrap" id="segs" role="tablist" aria-label="显示器"></div>
+
+  <div class="read">
+    <div class="n"><span id="value">--</span><em>%</em></div>
+    <div class="cap">
+      <b>内容亮度</b>
+      <span id="capSub">拖动滑块，或按 Ctrl Alt ↑ ↓</span>
+    </div>
+  </div>
+  <input id="slider" type="range" min="0" max="100" step="1" value="60" aria-label="SDR 内容亮度">
+
+  <div class="group">
+    <div class="row">
+      <div class="t"><b>HDR</b><span id="hdrSub">—</span></div>
+      <button class="switch" id="hdr" role="switch" aria-checked="false" aria-label="HDR"></button>
+    </div>
+    <div class="row">
+      <div class="t"><b>色彩位深</b><span>由显示器与显卡协商</span></div>
+      <span class="ro" id="bits">—</span>
+    </div>
+  </div>
+
+  <div class="sec">
+    <h2>场景</h2>
+    <button id="saveScene">保存当前状态</button>
+  </div>
+  <div class="group" id="scenes"></div>
+
+  <footer class="foot">
+    <span><kbd>Ctrl</kbd><kbd>Alt</kbd><kbd>↑↓</kbd> 亮度</span>
+    <span><kbd>Alt</kbd><kbd>1</kbd><kbd>2</kbd><kbd>3</kbd> 场景</span>
+  </footer>
+
+<script src="panel.js"></script>
+</body>
+</html>

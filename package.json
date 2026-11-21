@@ -1,0 +1,25 @@
+{
+  "name": "sdr-panel",
+  "version": "1.0.0",
+  "description": "Windows 上快速调 SDR 内容亮度并切 HDR 的托盘程序",
+  "main": "src/main.js",
+  "scripts": {
+    "start": "electron .",
+    "icon": "node tools/make-icon.js"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "dependencies": {
+    "koffi": "^3.3.8"
+  },
+  "devDependencies": {
+    "electron": "^45.4.1"
+  },
+  "allowScripts": {
+    "koffi@3.3.8": true,
+    "electron@45.4.1": true
+  },
+  "productName": "SDR 亮度"
+}
